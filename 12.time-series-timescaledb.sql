@@ -50,7 +50,8 @@ CREATE TABLE sensor_metrics_ht
 SELECT create_hypertable(
                'sensor_metrics_ht',
                'ts',
-               chunk_time_interval => INTERVAL '7 days'
+               chunk_time_interval => INTERVAL '7 days',
+               create_default_indexes => TRUE
        );
 
 -- =====================================================
@@ -244,3 +245,99 @@ SELECT sensor_id,
            ) AS moving_avg_cpu
 FROM sensor_metrics_ht
 WHERE ts >= now() - interval '1 day';
+
+
+-- =====================================================
+-- TIME_BUCKET (Hourly Average Temperature)
+-- Demonstrates: Basic time aggregation
+-- =====================================================
+
+SELECT time_bucket('1 hour', ts) AS bucket,
+       AVG(temperature)          AS avg_temp
+FROM sensor_metrics
+GROUP BY bucket
+ORDER BY bucket;
+
+-- =====================================================
+-- TIME_BUCKET PER SENSOR
+-- Demonstrates: Grouping by time + dimension
+-- =====================================================
+
+SELECT s.sensor_name,
+       time_bucket('1 hour', m.ts) AS bucket,
+       AVG(m.temperature)          AS avg_temp
+FROM sensor_metrics m
+         JOIN sensors s ON s.sensor_id = m.sensor_id
+GROUP BY s.sensor_name, bucket
+ORDER BY s.sensor_name, bucket;
+
+
+-- =====================================================
+-- TIME_BUCKET (Daily Aggregation)
+-- Demonstrates: Changing granularity
+-- =====================================================
+
+SELECT time_bucket('1 day', ts) AS day,
+       MIN(temperature)         AS min_temp,
+       MAX(temperature)         AS max_temp
+FROM sensor_metrics
+GROUP BY day
+ORDER BY day;
+
+
+-- =====================================================
+-- TIME_BUCKET_GAPFILL (Fill Missing Intervals)
+-- Demonstrates: Handling gaps in time-series
+-- =====================================================
+
+SELECT time_bucket_gapfill(
+               '1 hour',
+               ts,
+               NOW() - INTERVAL '3 months', -- start
+               NOW() -- finish
+       )                AS bucket,
+       AVG(temperature) AS avg_temp
+FROM sensor_metrics
+WHERE ts >= NOW() - INTERVAL '3 months'
+GROUP BY bucket
+ORDER BY bucket;
+
+
+-- =====================================================
+-- GAPFILL + COALESCE
+-- Demonstrates: Replace missing values with defaults
+-- =====================================================
+
+SELECT time_bucket_gapfill(
+               '1 hour',
+               ts,
+               NOW() - INTERVAL '3 months', -- start
+               NOW() -- finish
+       )                             AS bucket,
+       COALESCE(AVG(temperature), 0) AS avg_temp
+FROM sensor_metrics
+WHERE ts >= NOW() - INTERVAL '1 day'
+GROUP BY bucket
+ORDER BY bucket;
+
+
+-- =====================================================
+-- GAPFILL PER SENSOR
+-- Demonstrates: Time-series + dimension + gap filling
+-- =====================================================
+
+SELECT s.sensor_name,
+       time_bucket_gapfill(
+               '1 hour',
+               ts,
+               NOW() - INTERVAL '3 months', -- start
+               NOW() -- finish
+       )                               AS bucket,
+       COALESCE(AVG(m.temperature), 0) AS avg_temp
+FROM sensor_metrics m
+         JOIN sensors s ON s.sensor_id = m.sensor_id
+WHERE m.ts >= NOW() - INTERVAL '3 months'
+GROUP BY s.sensor_name, bucket
+ORDER BY s.sensor_name, bucket;
+
+select show_chunks('sensor_metrics_ht')
